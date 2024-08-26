@@ -7,7 +7,8 @@ from typing import List
 def bge_embedding(segments):
     HEADERS = {"Content-Type": "application/json", "Accept": "application/json"}
     # URL = "http://localhost:8846/embedding_bge_m3"
-    URL = "http://172.22.162.213:8846/embedding_bge_m3"
+    #URL = "http://172.22.162.213:8846/embedding_bge_m3"
+    URL = "http://localhost:8846/embedding_bge_m3"
     r = requests.post(URL, json.dumps({'segments': segments}), headers=HEADERS)
     response = json.loads(r.content)
     return response
