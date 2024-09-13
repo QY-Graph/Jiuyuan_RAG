@@ -76,7 +76,7 @@ def augment(userid,dialogueid):
     #vector_store = JiuyuanVectorStore(schema_name="public",table_name="test1035", embed_dim=1024,\
     #    host='172.22.162.213', port='7474', user='default_user', password='', database_name='default_db')
     vector_store = JiuyuanVectorStore(schema_name="public",table_name=dialogueid, embed_dim=1024,\
-        host='172.22.162.13', port='7474', user='default_user', password='', database_name='default_db')
+        host='172.22.162.11', port='7474', user='default_user', password='', database_name='default_db')
     #vector_store = JiuyuanVectorStore(chroma_collection=db.get_or_create_collection(f"{collection_id}"))
     #try:
     query_start = time.time()

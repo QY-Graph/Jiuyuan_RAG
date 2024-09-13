@@ -39,6 +39,18 @@ def doc_to_docx(doc_file, docx_file):
     subprocess.run(['unoconv', '-f', 'docx', '-o', docx_file, doc_file], 
                    env={'PYTHONPATH': "/usr/bin/python"})
 
+def convert_doc_to_docx(input_file):
+    output_file = input_file.replace(".doc", ".docx")
+    command = ["/home/ceshi1/libreoffice/opt/libreoffice5.1/program/soffice", "--headless", "--convert-to", "docx", input_file,"--outdir",APP_DATA_PATH+"/"]
+                                                                                              
+    try:
+        subprocess.run(command, check=True)
+        # print(f"doc2docx conversion successful: {output_file}")
+        print("doc2docx conversion successful: {}".format(output_file))
+
+    except subprocess.CalledProcessError as e:
+        print("Error during doc2docx conversion: {}".format(e))
+
 
 def file2text(file_tpye, file_path, text_splitter):
     if file_tpye in FILE_TPYE_FOR_SimpleDirectoryReader:
@@ -82,11 +94,13 @@ def file2nodes(file_tpye, file_path, nth_file, text_splitter, embedding_model_st
 def init_vector_store(session_id, nth_file, nodes):
     # vector_store = ChromaVectorStore(chroma_collection=db.get_or_create_collection(f"{session_id}"))
     vector_store = JiuyuanVectorStore(schema_name="public",table_name=session_id, embed_dim=1024,
-                                      host='172.22.162.13', port='7474', user='default_user', password='',database_name='default_db')
+                                      host='172.22.162.11', port='7474', user='default_user', password='',database_name='default_db')
     """
-    for i in range(0,len(nodes),1):
-      log2ui(f"{nodes[i].text}")
-      vector_store.add(nodes[i:min(len(nodes),i+1)])
+    for i in range(0,len(nodes),100):
+      #log2ui(f"{nodes[i].text}")
+      vector_store.add(nodes[i:min(len(nodes),i+100)])
+      #TODO add some code here to support "progress" api, progress is a float number
+      #db.UpdateOrCreate(userid,sessionid,docid,progress)
     """
     vector_store.add(nodes)
     vector_store.close()
@@ -180,6 +194,16 @@ def _query(
                                                )
             return content
 
+@app.route("/index/progress/user/<string:userid>/dialogue/<string:dialogueid>/doc/<string:docid>",methods=["GET"])
+def progress(userid,dialogueid,docid):
+    #TODO
+    #db.connetc(***)
+    #progress = db.query(userid,dialogueid,docid)
+    return app.reponse_class(
+      json.dumps({"success":100}),
+      status=200,
+      mimetype = 'application/json'
+    )
 
 @app.route("/index/user/<string:userid>/dialogue/<string:dialogueid>/doc/<string:docid>", methods=["POST"])
 def index(userid,dialogueid,docid):
@@ -188,10 +212,13 @@ def index(userid,dialogueid,docid):
     #session_id: str = request.form["session_id"]
     session_id = dialogueid
 
-    file_url = f"http://172.22.162.216:8777/aichat/attachment/download?name=ATTACHMENT_{docid}.txt"
-    file_path = os.path.join(APP_DATA_PATH, dialogueid)
-    if not os.path.exists(file_path):
-      os.makedirs(file_path)
+    file_type = docid.split(".")[-1]
+    file_id = docid.split(".")[0]
+    file_url = f"http://172.22.162.216:8777/aichat/attachment/download?name=ATTACHMENT_{file_id}.{file_type}"
+    #file_path = os.path.join(APP_DATA_PATH, dialogueid)
+    file_path = APP_DATA_PATH+"/"
+    #if not os.path.exists(file_path):
+    #  os.makedirs(file_path)
          
     try:
       response = requests.get(file_url)
@@ -203,7 +230,8 @@ def index(userid,dialogueid,docid):
         status=400,
         mimetype = 'application/json'
       )
-    file_name =f"{docid}.txt"
+
+    file_name =f"{file_id}.{file_type}"
     file_ = os.path.join(file_path,file_name)
     try:
       with open(file_,'wb') as f:
@@ -215,39 +243,47 @@ def index(userid,dialogueid,docid):
         status=401,
         mimetype = 'application/json'
       )
+    if file_type == "doc":
+        convert_doc_to_docx(file_)
+        file_type = "docx"
+        file_ = file_ + "x"
+
     #TODO
     #can be infferred from "setting" in request body
 
-    metadata = {"userid":userid,"dialogueid":dialogueid,"docid":docid}
-    file_type = "txt"
-    if file_type == "txt":
-      """
-      #TODO
-      #extend parameters by adding "settings" to request body
-      _doc_index(
-          session_id=session_id,
-          file_path=file_path,
-          nth_file=nth_file,
-          file_tpye=file_tpye, 
-          strategy=settings["rag_strategy"],
-          embedding_model_str=settings["rag_embedding_model"], 
-          chunk_size=settings["rag_chunk_size"], 
-          chunk_overlap=settings["rag_chunk_overlap"]
-      )
-      """
-      _doc_index(
-          session_id=dialogueid,
-          file_path=file_,
-          nth_file=1,
-          file_tpye="txt", 
-          strategy="basic",
-          embedding_model_str="bge_large", 
-          chunk_size=512, 
-          chunk_overlap=64,
-          metadata=metadata
-      )
+    metadata = {"userid":userid,"dialogueid":dialogueid,"docid":file_id}
+
+
     """
-    # preceding_files_num: int = int(request.form["preceding_files_num"])
+    #TODO
+    #extend parameters by adding "settings" to request body
+    _doc_index(
+        session_id=session_id,
+        file_path=file_path,
+        nth_file=nth_file,
+        file_tpye=file_tpye, 
+        strategy=settings["rag_strategy"],
+        embedding_model_str=settings["rag_embedding_model"], 
+        chunk_size=settings["rag_chunk_size"], 
+        chunk_overlap=settings["rag_chunk_overlap"]
+    )
+    """
+      
+    _doc_index(
+        session_id=dialogueid,
+        file_path=file_,
+        nth_file=1,
+        file_tpye=file_type, 
+        strategy="basic",
+        embedding_model_str="bge_large", 
+        chunk_size=512, 
+        chunk_overlap=64,
+        metadata=metadata
+    )
+     
+
+    """
+    preceding_files_num: int = int(request.form["preceding_files_num"])
     preceding_files_num: int = 0
     settings: dict = json.loads(request.form["settings"])
     files = request.files.getlist('file')
@@ -255,15 +291,16 @@ def index(userid,dialogueid,docid):
         nth_file = preceding_files_num + local_nth_file + 1
         file_tpye = f.filename.split(".")[-1]
         Path(os.path.join(APP_DATA_PATH, "received_files")).mkdir(parents=True, exist_ok=True)
-        file_path = os.path.join(APP_DATA_PATH, "received_files", f"{session_id}_{str(nth_file)}.{file_tpye}")
+        file_path = os.path.join(APP_DATA_PATH, "received_files", f"{session_id}_{str(nth_file)}_{file_tpye}.{file_tpye}")
         f.save(file_path)
         if file_tpye == "doc":
-            doc_to_docx(doc_file=file_path, docx_file=file_path + "x")
+            convert_doc_to_docx(doc_file=file_path, docx_file=file_path + "x")
             file_tpye = "docx"
             file_path = file_path + "x"
         log2ui("~ doc_index:" + f"session_id:[{session_id}]; #file:[{nth_file}]; filename:[{f.filename}]")
         _doc_index(
-            session_id=session_id,
+            # session_id=session_id,
+            session_id=dialogue_id,
             file_path=file_path,
             nth_file=nth_file,
             file_tpye=file_tpye, 
@@ -271,6 +308,35 @@ def index(userid,dialogueid,docid):
             embedding_model_str=settings["rag_embedding_model"], 
             chunk_size=settings["rag_chunk_size"], 
             chunk_overlap=settings["rag_chunk_overlap"]
+        )
+    """
+    """
+    preceding_files_num: int = int(request.form["preceding_files_num"])
+    preceding_files_num: int = 0
+    settings: dict = json.loads(request.form["settings"])
+    files = request.files.getlist('file')
+    for local_nth_file, f in enumerate(files):
+        nth_file = preceding_files_num + local_nth_file + 1
+        file_tpye = f.filename.split(".")[-1]
+        Path(os.path.join(APP_DATA_PATH, "received_files")).mkdir(parents=True, exist_ok=True)
+        file_path = os.path.join(APP_DATA_PATH, "received_files", f"{session_id}_{str(nth_file)}_{file_tpye}.{file_tpye}")
+        f.save(file_path)
+        if file_tpye == "doc":
+            convert_doc_to_docx(doc_file=file_path, docx_file=file_path + "x")
+            file_tpye = "docx"
+            file_path = file_path + "x"
+        log2ui("~ doc_index:" + f"session_id:[{session_id}]; #file:[{nth_file}]; filename:[{f.filename}]")
+        _doc_index(
+            # session_id=session_id,
+            session_id=dialogue_id,
+            file_path=file_path,
+            nth_file=nth_file,
+            file_tpye=file_tpye, 
+            strategy=settings["rag_strategy"],
+            embedding_model_str=settings["rag_embedding_model"], 
+            chunk_size=settings["rag_chunk_size"], 
+            chunk_overlap=settings["rag_chunk_overlap"],
+            metadata=metadata
         )
     """
     resp = jsonify(success=True)
