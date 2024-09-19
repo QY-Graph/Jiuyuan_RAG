@@ -27,6 +27,10 @@ from strategy.basic.basic_strategy import BasicStrategy
 from local_llm import llm_nostream, llm, use_prompt
 from utils import log2ui, APP_DATA_PATH, LocalSentenceSplitter
 from jiuyuan_db.jiuyuan_vector_store import JiuyuanVectorStore
+from jiuyuan_db.client.client import JiuyuanClient
+from jiuyuan_db.jiuyuan_exception import JiuyuanException
+from llama_index.core.vector_stores import VectorStoreQuery,MetadataFilter,MetadataFilters
+from llama_index.core.vector_stores.types import FilterCondition,FilterOperator
 
 embed_model = {
     "bge_large": LocalBgeEmbedding() # bge m3
@@ -58,7 +62,7 @@ def file2text(file_tpye, file_path, text_splitter):
         text_chunks = text_splitter.split_text("\n".join([d.text for d in reader.load_data()]))
     else:
         print(f"file_tpye not supported: [{file_tpye}]")
-    log2ui(f"!!! text_chunks=[{text_chunks}]")
+        #log2ui(f"!!! text_chunks=[{text_chunks}]")
     return text_chunks
 
 def file2nodes(file_tpye, file_path, nth_file, text_splitter, embedding_model_str,metadata=None):
@@ -95,6 +99,8 @@ def init_vector_store(session_id, nth_file, nodes):
     # vector_store = ChromaVectorStore(chroma_collection=db.get_or_create_collection(f"{session_id}"))
     vector_store = JiuyuanVectorStore(schema_name="public",table_name=session_id, embed_dim=1024,
                                       host='172.22.162.11', port='7474', user='default_user', password='',database_name='default_db')
+    vector_store.add(nodes)
+    vector_store.close()
     """
     for i in range(0,len(nodes),100):
       #log2ui(f"{nodes[i].text}")
@@ -102,8 +108,6 @@ def init_vector_store(session_id, nth_file, nodes):
       #TODO add some code here to support "progress" api, progress is a float number
       #db.UpdateOrCreate(userid,sessionid,docid,progress)
     """
-    vector_store.add(nodes)
-    vector_store.close()
 
 
 def _doc_index(
@@ -199,12 +203,107 @@ def progress(userid,dialogueid,docid):
     #TODO
     #db.connetc(***)
     #progress = db.query(userid,dialogueid,docid)
-    return app.reponse_class(
-      json.dumps({"success":100}),
+    myclient = JiuyuanClient(host='172.22.162.11', port='7474', user='default_user', password='',database_name='default_db')
+    session = myclient.get_session()
+    #query = "select progress from user_progress WHERE userid = "+userid+" AND sessionid = "+dialogueid+" AND docid ="+docid+";"
+    query = f"select progress from user_progress WHERE userid = '{userid}' AND sessionid = '{dialogueid}' AND docid = '{docid}';"
+    res = session.execute_sql(query)
+    myclient.release_session(session)
+    if(res == None):
+      return app.response_class(
+        json.dumps({"No result":"无结果"}),
+        status=400,
+        mimetype = 'application/json'
+      )
+    else: 
+      res.next()
+      progress = res.get_object(1)
+      log2ui(f"--progress :{progress}")
+      return app.response_class(
+        json.dumps({"progress":progress}),
+        status=200,
+        mimetype = 'application/json'
+      )
+
+@app.route("/index/user/<string:userid>/dialogue/<string:dialogueid>", methods=["DELETE"])
+def delete_session(userid,dialogueid):
+    vector_store = JiuyuanVectorStore(schema_name="public",table_name=dialogueid, embed_dim=1024,
+                                      host='172.22.162.11', port='7474', user='default_user', password='',database_name='default_db')
+    filters = MetadataFilters(
+        condition=FilterCondition.AND,
+        filters=[
+          MetadataFilter(
+            key="userid", operator=FilterOperator.EQ, value=userid
+            ),
+          MetadataFilter(
+            key="dialogueid", operator=FilterOperator.EQ, value=dialogueid
+            )
+        ]
+    )
+    #vector_store._initialize()
+    vector_store._connect()
+    vector_store.delete(filters)
+    vector_store.close()
+    myclient = JiuyuanClient(host='172.22.162.11', port='7474', user='default_user', password='',database_name='default_db')
+    session = myclient.get_session()
+    query = f"DELETE FROM user_progress WHERE sessionid = '{dialogueid}';"
+    try:
+      session.execute_sql_update(query)
+    except JiuyuanException as e:
+      return app.response_class(
+        json.dumps({"Delete":"Sql Execution Failed!"}),
+        status=400,
+        mimetype = 'application/json'
+      )
+    myclient.release_session(session)
+    return app.response_class(
+      json.dumps({"Delete":"success"}),
       status=200,
       mimetype = 'application/json'
     )
 
+@app.route("/index/user/<string:userid>/dialogue/<string:dialogueid>/doc/<string:docid>", methods=["DELETE"])
+def delete_doc(userid,dialogueid,docid):
+    vector_store = JiuyuanVectorStore(schema_name="public",table_name=dialogueid, embed_dim=1024,
+                                      host='172.22.162.11', port='7474', user='default_user', password='',database_name='default_db')
+    file_id = docid.split(".")[0]
+    filters = MetadataFilters(
+        condition=FilterCondition.AND,
+        filters=[
+          MetadataFilter(
+            key="userid", operator=FilterOperator.EQ, value=userid
+            ),
+          MetadataFilter(
+            key="dialogueid", operator=FilterOperator.EQ, value=dialogueid
+            ),
+          MetadataFilter(
+            key="docid", operator=FilterOperator.EQ, value=file_id
+            )
+        ]
+    )
+    #vector_store._initialize()
+    vector_store._connect()
+    vector_store.delete(filters)
+    vector_store.close()
+
+    myclient = JiuyuanClient(host='172.22.162.11', port='7474', user='default_user', password='',database_name='default_db')
+    session = myclient.get_session()
+    query = f"DELETE FROM user_progress WHERE docid = '{docid}';"
+    try:
+      session.execute_sql_update(query)
+    except JiuyuanException as e:
+      return app.response_class(
+        json.dumps({"Delete":"Sql Execution Failed!"}),
+        status=400,
+        mimetype = 'application/json'
+      )
+    myclient.release_session(session)
+    return app.response_class(
+      json.dumps({"Delete":"success"}),
+      status=200,
+      mimetype = 'application/json'
+    )
+  
 @app.route("/index/user/<string:userid>/dialogue/<string:dialogueid>/doc/<string:docid>", methods=["POST"])
 def index(userid,dialogueid,docid):
     log2ui()
@@ -225,7 +324,7 @@ def index(userid,dialogueid,docid):
       response.raise_for_status()  # 确保请求成功
     except requests.RequestException as e:
       log2ui(f"Error downloading file: {e}")
-      return app.reponse_class(
+      return app.response_class(
         json.dumps({"error":"Fail to download file!"}),
         status=400,
         mimetype = 'application/json'
@@ -238,7 +337,7 @@ def index(userid,dialogueid,docid):
         f.write(response.content)
     except IOError as e:
       log2ui(f"Error saving  file: {e}")
-      return app.reponse_class(
+      return app.response_class(
         json.dumps({"error":"Fail to save downloaded file!"}),
         status=401,
         mimetype = 'application/json'
@@ -252,23 +351,7 @@ def index(userid,dialogueid,docid):
     #can be infferred from "setting" in request body
 
     metadata = {"userid":userid,"dialogueid":dialogueid,"docid":file_id}
-
-
-    """
-    #TODO
-    #extend parameters by adding "settings" to request body
-    _doc_index(
-        session_id=session_id,
-        file_path=file_path,
-        nth_file=nth_file,
-        file_tpye=file_tpye, 
-        strategy=settings["rag_strategy"],
-        embedding_model_str=settings["rag_embedding_model"], 
-        chunk_size=settings["rag_chunk_size"], 
-        chunk_overlap=settings["rag_chunk_overlap"]
-    )
-    """
-      
+    """  
     _doc_index(
         session_id=dialogueid,
         file_path=file_,
@@ -280,64 +363,73 @@ def index(userid,dialogueid,docid):
         chunk_overlap=64,
         metadata=metadata
     )
-     
+    """
+    text_splitter=LocalSentenceSplitter(
+        chunk_size=512,
+        chunk_overlap=646464646464)
+    if file_type in FILE_TPYE_FOR_SimpleDirectoryReader:
+        reader = SimpleDirectoryReader(input_files=[file_])
+        text_chunks = text_splitter.split_text("\n".join([d.text for d in reader.load_data()]))
+        log2ui(f"!!! text_chunks=[{text_chunks}]")
+    else:
+        log2ui(f"file_tpye not supported: [{file_tpye}]")
 
+    try:
+      os.remove(file_)
+      log2ui(f"Try delete file path:{file_}")
+      folder_path = os.path.abspath(file_)
+      log2ui(f"Try delete file abs path :{folder_path}")
+      #don't remove the directory with the consideration of delete conflict
+      #folder = os.path.dirname(folder_path)
+      #log2ui(f"Try delete folder:{folder}")
+      #shutil.rmtree(folder)
+      #os.rmdir(folder)
+    except OSError as e:
+      #print("delete error!")
+      log2ui(f"Delete error:file path:{file_}")
+      #return [TextNode(text="error")]
+    
+    URL = "http://localhost:8846/embedding_bge_m3"
+    HEADERS = {"Content-Type": "application/json", "Accept": "application/json"}
+
+    vector_store = JiuyuanVectorStore(schema_name="public",table_name=session_id, embed_dim=1024,
+                                      host='172.22.162.11', port='7474', user='default_user', password='',database_name='default_db')
+    myclient = JiuyuanClient(host='172.22.162.11', port='7474', user='default_user', password='',database_name='default_db')
+    session = myclient.get_session()
+    #check if already inserted
+    pre_query = f"select progress from user_progress WHERE userid = '{userid}' AND sessionid = '{dialogueid}' AND docid = '{docid}';"
+    pre_res = session.execute_sql(pre_query)
+    if(pre_res != None):
+      return app.response_class(
+        json.dumps({"Failure":"File already indexed!"}),
+        status=402,
+        mimetype = 'application/json'
+      )
+    #begin to insert nodes
+    for i in range(0,len(text_chunks),100):
+      progress =100* min(i+100,len(text_chunks))/len(text_chunks)
+      texts = text_chunks[i:min(i+100,len(text_chunks))]
+      r = requests.post(URL, json.dumps({'segments': texts}), headers=HEADERS)
+      embeddings = json.loads(r.content)
+      nodes = [TextNode(
+              #text=text_chunk[i,min(i+100,len(text_chunks)],
+              text = text_chunk,
+              embedding = embeddings[i],
+              metadata = metadata)
+              for i,text_chunk in enumerate(texts)]
+      vector_store.add(nodes)
+      #update progress
+      query = f"INSERT INTO user_progress (userid, sessionid, docid, progress) VALUES ('{userid}', '{dialogueid}', '{docid}', {progress}) ON CONFLICT (userid, sessionid, docid) DO UPDATE SET progress = EXCLUDED.progress;"
+      res = session.execute_sql_update(query)
+      myclient.release_session(session)
+    vector_store.close()
+    #TODO ask if the dbclient has close() API
     """
-    preceding_files_num: int = int(request.form["preceding_files_num"])
-    preceding_files_num: int = 0
-    settings: dict = json.loads(request.form["settings"])
-    files = request.files.getlist('file')
-    for local_nth_file, f in enumerate(files):
-        nth_file = preceding_files_num + local_nth_file + 1
-        file_tpye = f.filename.split(".")[-1]
-        Path(os.path.join(APP_DATA_PATH, "received_files")).mkdir(parents=True, exist_ok=True)
-        file_path = os.path.join(APP_DATA_PATH, "received_files", f"{session_id}_{str(nth_file)}_{file_tpye}.{file_tpye}")
-        f.save(file_path)
-        if file_tpye == "doc":
-            convert_doc_to_docx(doc_file=file_path, docx_file=file_path + "x")
-            file_tpye = "docx"
-            file_path = file_path + "x"
-        log2ui("~ doc_index:" + f"session_id:[{session_id}]; #file:[{nth_file}]; filename:[{f.filename}]")
-        _doc_index(
-            # session_id=session_id,
-            session_id=dialogue_id,
-            file_path=file_path,
-            nth_file=nth_file,
-            file_tpye=file_tpye, 
-            strategy=settings["rag_strategy"],
-            embedding_model_str=settings["rag_embedding_model"], 
-            chunk_size=settings["rag_chunk_size"], 
-            chunk_overlap=settings["rag_chunk_overlap"]
-        )
-    """
-    """
-    preceding_files_num: int = int(request.form["preceding_files_num"])
-    preceding_files_num: int = 0
-    settings: dict = json.loads(request.form["settings"])
-    files = request.files.getlist('file')
-    for local_nth_file, f in enumerate(files):
-        nth_file = preceding_files_num + local_nth_file + 1
-        file_tpye = f.filename.split(".")[-1]
-        Path(os.path.join(APP_DATA_PATH, "received_files")).mkdir(parents=True, exist_ok=True)
-        file_path = os.path.join(APP_DATA_PATH, "received_files", f"{session_id}_{str(nth_file)}_{file_tpye}.{file_tpye}")
-        f.save(file_path)
-        if file_tpye == "doc":
-            convert_doc_to_docx(doc_file=file_path, docx_file=file_path + "x")
-            file_tpye = "docx"
-            file_path = file_path + "x"
-        log2ui("~ doc_index:" + f"session_id:[{session_id}]; #file:[{nth_file}]; filename:[{f.filename}]")
-        _doc_index(
-            # session_id=session_id,
-            session_id=dialogue_id,
-            file_path=file_path,
-            nth_file=nth_file,
-            file_tpye=file_tpye, 
-            strategy=settings["rag_strategy"],
-            embedding_model_str=settings["rag_embedding_model"], 
-            chunk_size=settings["rag_chunk_size"], 
-            chunk_overlap=settings["rag_chunk_overlap"],
-            metadata=metadata
-        )
+    return [TextNode(
+            text=text_chunk,
+            embedding=embeddings[i],
+            metadata=metadata)
+            for i,text_chunk in enumerate(text_chunks)]
     """
     resp = jsonify(success=True)
     return resp
@@ -384,4 +476,4 @@ def get_session_name():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8091, debug=True, use_reloader=False)
+    app.run(host="0.0.0.0", port=8099, debug=True, use_reloader=False)

@@ -55,7 +55,7 @@ def augment(userid,dialogueid):
     )
     vector_store_query = VectorStoreQuery(
         query_embedding=query_embedding,
-        similarity_top_k=10,
+        similarity_top_k=20,
         filters = filters,
         mode="default"
     )
@@ -115,7 +115,7 @@ def augment(userid,dialogueid):
     log2ui(f"Rerank time:{rerank_overhead}")
     response = json.loads(r.content)
     response_pairs = [(res, i) for i, res in enumerate(response) if res > 0]
-    TOPK = 5
+    TOPK = 10
     sorted_paires = sorted(response_pairs,key = lambda x : x[0],reverse=True)[0:min(TOPK,len(refs))]
     
     #Use top-k directly, test for no rerank
