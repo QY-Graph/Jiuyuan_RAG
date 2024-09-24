@@ -10,7 +10,7 @@ import chromadb
 from flask import Flask, Response, request, jsonify
 app = Flask(__name__)
 
-
+import time
 import requests
 import pickle
 import jieba
@@ -207,8 +207,12 @@ def progress(userid,dialogueid,docid):
     session = myclient.get_session()
     #query = "select progress from user_progress WHERE userid = "+userid+" AND sessionid = "+dialogueid+" AND docid ="+docid+";"
     query = f"select progress from user_progress WHERE userid = '{userid}' AND sessionid = '{dialogueid}' AND docid = '{docid}';"
+    t_start = time.time()
     res = session.execute_sql(query)
+    duration = time.time()-t_start
+    log2ui(f"Elapsed time:{duration} s")
     myclient.release_session(session)
+    myclient.close_sessions()
     if(res == None):
       return app.response_class(
         json.dumps({"No result":"无结果"}),
@@ -256,6 +260,7 @@ def delete_session(userid,dialogueid):
         mimetype = 'application/json'
       )
     myclient.release_session(session)
+    myclient.close_sessions()
     return app.response_class(
       json.dumps({"Delete":"success"}),
       status=200,
@@ -298,6 +303,7 @@ def delete_doc(userid,dialogueid,docid):
         mimetype = 'application/json'
       )
     myclient.release_session(session)
+    myclient.close_sessions()
     return app.response_class(
       json.dumps({"Delete":"success"}),
       status=200,
@@ -366,11 +372,11 @@ def index(userid,dialogueid,docid):
     """
     text_splitter=LocalSentenceSplitter(
         chunk_size=512,
-        chunk_overlap=646464646464)
+        chunk_overlap=64)
     if file_type in FILE_TPYE_FOR_SimpleDirectoryReader:
         reader = SimpleDirectoryReader(input_files=[file_])
         text_chunks = text_splitter.split_text("\n".join([d.text for d in reader.load_data()]))
-        log2ui(f"!!! text_chunks=[{text_chunks}]")
+        #log2ui(f"!!! text_chunks=[{text_chunks}]")
     else:
         log2ui(f"file_tpye not supported: [{file_tpye}]")
 
@@ -421,7 +427,8 @@ def index(userid,dialogueid,docid):
       #update progress
       query = f"INSERT INTO user_progress (userid, sessionid, docid, progress) VALUES ('{userid}', '{dialogueid}', '{docid}', {progress}) ON CONFLICT (userid, sessionid, docid) DO UPDATE SET progress = EXCLUDED.progress;"
       res = session.execute_sql_update(query)
-      myclient.release_session(session)
+    myclient.release_session(session)
+    myclient.close_sessions()
     vector_store.close()
     #TODO ask if the dbclient has close() API
     """

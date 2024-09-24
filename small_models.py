@@ -77,7 +77,6 @@ def get_rerank_scores_m3():
 #     return scores
 
 
-
 if __name__ == "__main__":
     # query = "今天星期几？"
     # refs = ["今天是教师节", "今天礼拜二", "你好"]
