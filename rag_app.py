@@ -71,9 +71,9 @@ def file2nodes(file_tpye, file_path, nth_file, text_splitter, embedding_model_st
     #print(f"text chunks: {text_chunks}")
     try:
       os.remove(file_path)
-      log2ui(f"Try delete file path:{file_path}")
+      #log2ui(f"Try delete file path:{file_path}")
       folder_path = os.path.abspath(file_path)
-      log2ui(f"Try delete file abs path :{folder_path}")
+      #log2ui(f"Try delete file abs path :{folder_path}")
       #don't remove the directory with the consideration of delete conflict
       #folder = os.path.dirname(folder_path)
       #log2ui(f"Try delete folder:{folder}")
@@ -206,11 +206,11 @@ def progress(userid,dialogueid,docid):
     myclient = JiuyuanClient(host='172.22.162.11', port='7474', user='default_user', password='',database_name='default_db')
     session = myclient.get_session()
     #query = "select progress from user_progress WHERE userid = "+userid+" AND sessionid = "+dialogueid+" AND docid ="+docid+";"
-    query = f"select progress from user_progress WHERE userid = '{userid}' AND sessionid = '{dialogueid}' AND docid = '{docid}';"
+    query = f"select progress,doc_stat from user_progress WHERE userid = '{userid}' AND sessionid = '{dialogueid}' AND docid = '{docid}';"
     t_start = time.time()
     res = session.execute_sql(query)
     duration = time.time()-t_start
-    log2ui(f"Elapsed time:{duration} s")
+    #log2ui(f"Elapsed time:{duration} s")
     myclient.release_session(session)
     myclient.close_sessions()
     if(res == None):
@@ -222,9 +222,10 @@ def progress(userid,dialogueid,docid):
     else: 
       res.next()
       progress = res.get_object(1)
-      log2ui(f"--progress :{progress}")
+      stat = res.get_object(2)
+      #log2ui(f"--progress :{progress}")
       return app.response_class(
-        json.dumps({"progress":progress}),
+        json.dumps({"progress":progress,"stat":stat}),
         status=200,
         mimetype = 'application/json'
       )
@@ -312,8 +313,8 @@ def delete_doc(userid,dialogueid,docid):
   
 @app.route("/index/user/<string:userid>/dialogue/<string:dialogueid>/doc/<string:docid>", methods=["POST"])
 def index(userid,dialogueid,docid):
-    log2ui()
-    log2ui("\n\n~~~\n\n~ doc_index begin:")
+    #log2ui()
+    #log2ui("\n\n~~~\n\n~ doc_index begin:")
     #session_id: str = request.form["session_id"]
     session_id = dialogueid
 
@@ -382,9 +383,9 @@ def index(userid,dialogueid,docid):
 
     try:
       os.remove(file_)
-      log2ui(f"Try delete file path:{file_}")
+      #log2ui(f"Try delete file path:{file_}")
       folder_path = os.path.abspath(file_)
-      log2ui(f"Try delete file abs path :{folder_path}")
+      #log2ui(f"Try delete file abs path :{folder_path}")
       #don't remove the directory with the consideration of delete conflict
       #folder = os.path.dirname(folder_path)
       #log2ui(f"Try delete folder:{folder}")
@@ -411,6 +412,9 @@ def index(userid,dialogueid,docid):
         status=402,
         mimetype = 'application/json'
       )
+    #update progress
+    query_ = f"INSERT INTO user_progress (userid, sessionid, docid, doc_stat, progress) VALUES ('{userid}', '{dialogueid}', '{docid}', {len(text_chunks)},0.00) ON CONFLICT (userid, sessionid, docid) DO UPDATE SET progress = EXCLUDED.progress;"
+    session.execute_sql_update(query_);
     #begin to insert nodes
     for i in range(0,len(text_chunks),100):
       progress =100* min(i+100,len(text_chunks))/len(text_chunks)
