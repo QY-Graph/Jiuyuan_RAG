@@ -316,7 +316,7 @@ def index(userid,dialogueid,docid):
     #log2ui()
     #log2ui("\n\n~~~\n\n~ doc_index begin:")
     #session_id: str = request.form["session_id"]
-    session_id = dialogueid
+    session_id = userid
 
     file_type = docid.split(".")[-1]
     file_id = docid.split(".")[0]
@@ -487,4 +487,4 @@ def get_session_name():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8099, debug=True, use_reloader=False)
+    app.run(host="0.0.0.0", port=8101, debug=True, use_reloader=False)
